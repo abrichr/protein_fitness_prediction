@@ -1,75 +1,72 @@
-"""
-Goals
------
+# Goals
+
 Please use the provided subset of this sequence->fitness dataset
 (representing 0.3% of the possible sequence diversity) to:
+
 - construct 10 new sequences outside of the provided dataset with the highest
 predicted fitness for a subsequent round of synthesis.
+
 - Suggest 10 compounds outside of the dataset provided that if you had
 experimental data on would most improve your model (and thus answer
 for #1). 
 
-Libraries
---------
-https://omictools.com/propy-tool
-https://github.com/Superzchen/iLearn
-https://bio.tools/quantiprot
-https://biopython.org/
-https://pypi.org/project/modlamp
-https://github.com/gadsbyfly/PyBioMed
-https://www.iitm.ac.in/bioinfo/SBFE/index.html
-https://github.com/raghavagps/Pfeature
+# Implementation 
 
+This implementation resembles that of
+[innov’SAR](https://www.genome.jp/aaindex/).
 
-DL:
-https://bitbucket.org/clami66/rawmsa/src/master/
-https://llp.berkeley.edu/DeepPrime2Sec/
-https://github.com/mheinzinger/SeqVec
-https://github.com/xal2019/DeepFE-PPI
-https://github.com/elbasir/DeepCrystal
-https://github.com/uci-cbcl/HLA-bind
+Steps:
+1) Encoding
 
-Ideas
------
-Pipeline
-- augmentation/encoding
-    - pairs
-    - higher order
-        - NLF
-            https://raw.githubusercontent.com/dmnfarrell/epitopepredict/master/epitopepredict/mhcdata/NLF.csv
-        - aaindex
-	- IEDB
-        - hamming distance / sequence landscape / indirect paths
-    - https://dmnfarrell.github.io/bioinformatics/mhclearning
-- dimensionality reduction
-    - https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.RFECV.html#sklearn.feature_selection.RFECV
-- hyperparameter search
-- model search
+    a) [AAIndex](https://www.genome.jp/aaindex/)1 features via
+    [PyBioMed](https://github.com/gadsbyfly/PyBioMed):
 
-https://datascience.stackexchange.com/questions/23540/converting-a-regression-problem-into-a-classification-problem
+    > This database holds more than 500 numerical indices representing various
+    > physicochemical and biochemical properties for the 20 standard amino
+    > acids and correlations between these indices are also listed.
 
-augment dataset by converting each amino acid into some higher dimensional representation of its properties (trained on external data)
-build hamming distance graphs and select missing nodes near areas of high fitness
-train regression model used in section "Imputing the fitness of missing variants"
-augment with features for combinations
-eliminate uncorrelated features
+    TODO: use correlations
 
-https://arxiv.org/pdf/1811.10775.pdf
-Kernel methods, such as support vector machines28 and kernel ridge regression,29 employ a kernel function, which calculates
-similarities between pairs of inputs, to implicitly project the input features into a high-dimensional feature space without
-explicitly calculating the coordinates in this new space. While general-purpose kernels can be applied to protein inputs, there
-are also kernels designed for use on proteins, including spectrum and mismatch string kernels,30, 31 which count the number
-of shared subsequences between two proteins, and weighted decomposition kernels,32 which account for three-dimensional
-protein structure. Support vector machines have been used to predict protein thermostability,33, 34, 35, 36, 25, 27, 26, 37 enzyme
-enantioselectivity,38 and membrane protein expression and localization.39
+    b) Fast Fourier Transform (FFT) via `numpy.fft`
 
-https://elifesciences.org/articles/16965
+2) Modelling
 
-Empirical evidence suggests that pairwise epistasis is prevalent in fitness landscapes (Kvitek and Sherlock, 2011; Kouyos et al., 2012; O’Maille et al., 2008; Lozovsky et al., 2009). Specifically, sign epistasis between two loci is known to constrain adaptation by limiting the number of selectively accessible paths (Weinreich et al., 2006). Higher-order epistasis (i.e. interactions among more than two loci) has received much less attention and its role in adaptation is yet to be elucidated (Weinreich et al., 2013; Palmer et al., 2015).
+    > the modelling phase, will use the experimental values of the target
+    > activity, in conjunction with these protein spectra, in order to identify
+    > a predictive model.
+    > The model is constructed by the application of standard regression
+    > approaches based on a learning step and a validation step. innov’SAR
+    > used a partial least square regression, PLS, as algorithm of regression
+    > to do the model for the predictions of the enantioselectivity of epoxide
+    > hydrolase. 
 
-We also observed a substantial skew in the computed probability of realization among accessible direct paths (Figure 1—figure supplement 5), suggesting that most of the realizations in adaptation were captured by a small fraction of possible trajectories (Weinreich et al., 2006). These results indicated the existence of sign epistasis and reciprocal sign epistasis, both of which may constrain the accessibility of direct paths (Weinreich et al., 2006; Tufts et al., 2015). Indeed, we found that these two types of epistasis were prevalent in our fitness landscape (Figure 1C)
+    This implementation differs in the following ways:
 
-https://arxiv.org/pdf/1902.07231.pdf
+    - Predict on given fitness values (instead of enantioselectivity of epoxide
+    hydrolase)
+    - Evaluates 17 models from [sklearn](https://scikit-learn.org) in addition
+    to PLS.
+    - Runs hyperparameter search
 
-"""
+3) Validation
 
+    > The root mean squared error (RMSE) and the coefficient of determination
+    > (R2) are the performance parameters to assess a regression model, during
+    > the validation step.
+
+    The cross validation procedure described in the paper is implemented here
+    with sklearn.
+
+# Discussion
+
+The best R2 value achieved was ~-2, i.e. less effective
+than the null hypothesis of predicting the mean. This may be due to
+insufficiently exhaustive hyperparameter search. Alternatively it may be
+because this model was only trained on 0.3% of the data, whereas the reference
+paper trained on all of it.
+
+# Future Work
+
+Perhaps it is possible to reduce the search space of the given training
+set by creating a mutation graph of the given variants, and only keeping
+the largest connected component.

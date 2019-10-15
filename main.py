@@ -13,10 +13,16 @@ from sklearn.feature_selection import (
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
+from sklearn.model_selection import (
+    GridSearchCV,
+    KFold,
+    RandomizedSearchCV,
+    LeaveOneOut
+)
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline, FeatureUnion
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -24,24 +30,23 @@ import pandas as pd
 from transformations import (
     ALPHABET,
     DummyEstimator,
+    FFTEncoder,
     OneHotEncoder,
     OneHotPairEncoder,
-    OneHotLocationEncoder,
-    PyBioMedEncoder,
+    #PyBioMedEncoder,
     AAIndexEncoder
 )
 
 
 EXPECTED_VARIANT_LENGTH = 4
 FPATH_DATASET = 'DataSet for Assignment.xlsx - Sheet1 (1).csv'
-VERBOSITY = 0
 CACHEDIR = '__cache__'
 N_FEATURES_RATIOS = [
     .01,
     .1,
     1
 ]
-NUM_FOLDS = 5
+NUM_FOLDS = None  # if None, NUM_FOLDS == num_rows ==> leave one out
 
 
 memory = Memory(location=CACHEDIR)
@@ -50,7 +55,8 @@ memory = Memory(location=CACHEDIR)
 def main():
     """Main"""
 
-    estimator = get_best_estimator__cached()
+    #estimator = get_best_estimator__cached()
+    estimator = get_best_estimator()
     pick_candidates(estimator, 10)
 
 
@@ -62,7 +68,7 @@ def pick_candidates(estimator, num_candidates):
     score_candidate_tups = []
     print('Scoring candidates...')
     for candidate in tqdm(new_candidates):
-        prediction = estimator.predict([candidate])
+        prediction = estimator.predict(pd.DataFrame({'Variants': [candidate]}))
         score_candidate_tups.append((prediction, candidate))
     score_candidate_tups.sort(key=lambda tup: tup[0])
     top_candidates = score_candidate_tups[:num_candidates]
@@ -103,17 +109,60 @@ def get_combined_grids(grid_steps):
         combined_grids.append(combined_grid)
     return combined_grids
 
+'''
+Finished in: 920.260710001
+best_estimator: Pipeline(memory=Memory(location=__cache__/joblib),
+     steps=[('reduce', NMF(alpha=0.0, beta_loss='frobenius', init=None, l1_ratio=0.0, max_iter=200,
+  n_components=4, random_state=None, shuffle=False, solver='cd',  
+  tol=0.0001, verbose=0)), ('regress', LinearSVR(C=1.0, dual=True, epsilon=0.0, fit_intercept=True,              
+     intercept_scaling=1.0, loss='epsilon_insensitive', max_iter=1000,
+     random_state=None, tol=0.0001, verbose=0))])
+best_params: {'regress': LinearSVR(C=1.0, dual=True, epsilon=0.0, fit_intercept=True,              
+     intercept_scaling=1.0, loss='epsilon_insensitive', max_iter=1000,
+     random_state=None, tol=0.0001, verbose=0), 'reduce__n_components': 4, 'reduce': NMF(alpha=0.0, beta_loss='frobenius', init=None, l1_ratio=0.0, max_iter=200,
+  n_components=4, random_state=None, shuffle=False, solver='cd',  
+  tol=0.0001, verbose=0)}
+best_score: -7.231589338833839
+best_std: 8.048889351279628
+'''
 
-def get_best_estimator():
-
+def innovSAR():
     df = load_data()
     Y = df['Fitness']
     X = df[['Variants']]
+    encoder = AAIndexEncoder()
+    start = timer()
+    X = encoder.transform(X)
+    end = timer()
+    print('Finished in: {}'.format(end - start))
+    num_rows, num_cols = X.shape
+    assert num_rows == len(df)
+    print('Got {} features'.format(num_cols))
+    import ipdb; ipdb.set_trace()
+
+def hyperopt():
+
+    df = load_data()
+    Y = df['Fitness']
+    Y_trans = Y
+    if 0:
+        for _ in range(100):
+            Y_trans = np.log1p(Y_trans)
+        if 1:
+            f, (ax0, ax1) = plt.subplots(1, 2)
+            ax0.hist(Y, bins=100)
+            ax1.hist(Y_trans, bins=100)
+            f, (ax0, ax1) = plt.subplots(1, 2)
+            ax0.plot(Y)
+            ax1.plot(Y_trans)
+            plt.show()
+            import ipdb; ipdb.set_trace()
+
+    X = df[['Variants']]
     features = FeatureUnion([
-        ('one_hot_encoder', OneHotEncoder()),
-        ('one_hot_pair_encoder', OneHotPairEncoder()),
-        ('one_hot_location_encoder', OneHotLocationEncoder()),
-        ('pybiomed_encoder', PyBioMedEncoder()),
+        #('one_hot_encoder', OneHotEncoder()),
+        #('one_hot_pair_encoder', OneHotPairEncoder()),
+        #('pybiomed_encoder', PyBioMedEncoder()),
         ('aaindex_encoder', AAIndexEncoder())
     ])
     print('*' * 40)
@@ -127,74 +176,116 @@ def get_best_estimator():
     assert num_rows == len(df)
     print('Got {} features'.format(num_cols))
 
+    # TODO include this in pipeilne
+
     imp = SimpleImputer(missing_values=np.nan, strategy='mean')
     imp.fit(X)
     X = imp.transform(X)
     assert not pd.DataFrame(X).isna().any().any()
+
+    X = FFTEncoder().fit_transform(X)
+
+    import ipdb; ipdb.set_trace()
 
     n_features_options = [int(num_cols * ratio) for ratio in N_FEATURES_RATIOS]
     print('n_features_options:', n_features_options)
     feature_reduction_grid = [
         {
             'reduce': [
-                PCA(),
+                #PCA(),
                 NMF()
             ],
             'reduce__n_components': n_features_options,
         },
-        {
-            'reduce': [SelectKBest()],
-            'reduce__score_func': [
-                f_regression,
-                mutual_info_regression
-            ],
-            'reduce__k': n_features_options,
-        },
+        #{
+        #    'reduce': [SelectKBest()],
+        #    'reduce__score_func': [
+        #        f_regression,
+        #        mutual_info_regression
+        #    ],
+        #    'reduce__k': n_features_options,
+        #},
     ]
+
+
+    # Random forest features
+    # Number of trees in random forest
+    n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
+    # Number of features to consider at every split
+    max_features = ['auto', 'sqrt']
+    # Maximum number of levels in tree
+    max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+    max_depth.append(None)
+    # Minimum number of samples required to split a node
+    min_samples_split = [2, 5, 10]
+    # Minimum number of samples required at each leaf node
+    min_samples_leaf = [1, 2, 4]
+    # Method of selecting samples for training each tree
+    bootstrap = [True, False]
 
     # TODO: search over more params
     regression_grid = [
+        #{
+        #    'regress': [
+        #        #KNeighborsRegressor(),
+        #        #linear_model.ARDRegression(),
+        #        #linear_model.BayesianRidge(),
+        #        #linear_model.ElasticNet(),
+        #        #linear_model.LassoLars(),
+        #        #linear_model.LinearRegression(),
+        #        #linear_model.Ridge(),
+        #        #linear_model.SGDRegressor(),
+        #        #tree.DecisionTreeRegressor(),
+        #        #ensemble.AdaBoostRegressor(),
+        #        #ensemble.BaggingRegressor(),
+        #        #ensemble.GradientBoostingRegressor(),
+        #    ]
+        #},
+        #{
+        #    'regress': [ensemble.RandomForestRegressor()],
+        #    #'regress__n_estimators': n_estimators,
+        #    #'regress__max_features': max_features,
+        #    #'regress__max_depth': max_depth,
+        #    #'regress__min_samples_split': min_samples_split,
+        #    #'regress__min_samples_leaf': min_samples_leaf,
+        #    #'regress__bootstrap': bootstrap
+        #},
         {
-            'regress': [
-                KNeighborsRegressor(),
-                linear_model.ARDRegression(),
-                linear_model.BayesianRidge(),
-                linear_model.ElasticNet(),
-                linear_model.LassoLars(),
-                linear_model.LinearRegression(),
-                linear_model.Ridge(),
-                tree.DecisionTreeRegressor(),
-                ensemble.RandomForestRegressor(),
-                ensemble.AdaBoostRegressor(),
-                ensemble.BaggingRegressor(),
-                ensemble.GradientBoostingRegressor(),
-                svm.LinearSVR(),
-                svm.NuSVR()
-            ]
-        },
-        {
-            'regress': [neural_network.MLPRegressor()],
-            'regress__hidden_layer_sizes': [(10,), (30,)]
-        },
+            'regress': [PLSRegression()]
+        }
+	#{
+        #    'regress': [svm.NuSVR()],
+        #    'regress__C': [1, 10, 100, 1000],
+        #    'regress__kernel': ['rbf', 'linear', 'poly'],
+        #},
+	#{
+        #    'regress': [svm.LinearSVR()],
+        #    'regress__C': [1, 10, 100, 1000]
+        #}
+        #{
+        #    'regress': [neural_network.MLPRegressor()],
+        #    'regress__hidden_layer_sizes': [(100,)]
+        #},
     ]
 
     pipeline = Pipeline(
         [
-            ('reduce', DummyEstimator()),
+            #('fft', FFTEncoder()),
+            #('reduce', DummyEstimator()),
             ('regress', DummyEstimator())
         ],
-        memory=memory
+        #memory=memory
     )
 
     grid_steps = [
-        feature_reduction_grid,
+        #feature_reduction_grid,
         regression_grid
     ]
     combined_grids = get_combined_grids(grid_steps)
     print('combined_grids:')
     pprint(combined_grids)
 
-    kfold = KFold(n_splits=NUM_FOLDS, random_state=0)
+    kfold = KFold(n_splits=NUM_FOLDS or num_rows, random_state=0)
     search = GridSearchCV(
         pipeline,
         combined_grids,
@@ -222,7 +313,7 @@ def get_best_estimator():
     print('best_score:', best_score)
     print('best_std:', best_std)
 
-    return best_estimator
+    return Pipeline([('features', features), ('estimator', best_estimator)])
 
 get_best_estimator__cached = memory.cache(get_best_estimator)
 
