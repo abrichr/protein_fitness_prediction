@@ -10,6 +10,17 @@
 > experimental data on would most improve your model (and thus answer
 > for #1). 
 
+# Usage
+
+```
+pip install -r requirements.txt
+cp "path/to/DataSet for Assignment.xlsx - Sheet1 (1).csv" .
+python main.py
+```
+
+This takes approximately 26h on a MacBook Pro with a 3.1 GHz i7 CPU and
+16 GB 1867 MHz DDR3 memory to complete.
+
 # Methods 
 
 This implementation resembles that of
@@ -88,3 +99,7 @@ classifiers on connected components might have the effect of reducing the
 search space for each model, thereby improving performance. This could be
 implemented via a 4D boolean adjacency matrix and
 `scipy.ndimage.measurements.find_objects`.
+
+- More features can be added, such as physical features from libraries
+such as PyBioMed, or deep learning features such as
+[rawMSA](https://www.biorxiv.org/content/10.1101/394437v2).

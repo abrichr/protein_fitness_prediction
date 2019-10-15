@@ -22,13 +22,13 @@ from sklearn.model_selection import (
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline, FeatureUnion
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
 from transformations import (
     ALPHABET,
+    memory,
     DummyEstimator,
     FFTEncoder,
     OneHotEncoder,
@@ -41,23 +41,21 @@ from transformations import (
 
 EXPECTED_VARIANT_LENGTH = 4
 FPATH_DATASET = 'DataSet for Assignment.xlsx - Sheet1 (1).csv'
-CACHEDIR = '__cache__'
-NUM_FOLDS = 2  # if None, NUM_FOLDS == num_rows ==> leave one out
+NUM_FOLDS = None  # if None, NUM_FOLDS == num_rows ==> leave one out
 N_FEATURES_RATIOS = [
     .01,
     .1,
     1
 ]
-
-
-memory = Memory(location=CACHEDIR)
+CV_VERBOSE = 10
+NUM_CANDIDATES = 10
 
 
 def main():
     """Main"""
 
     search, estimator = innovSAR()
-    pick_candidates(estimator, 10)
+    pick_candidates(estimator, NUM_CANDIDATES)
 
 
 def innovSAR():
@@ -69,26 +67,27 @@ def innovSAR():
         [
             ('encode', AAIndexEncoder()),
             ('fft', FFTEncoder()),
+            ('impute', SimpleImputer(missing_values=np.nan, strategy='mean')),
             ('regress', PLSRegression())
         ],
-        memory
+        #memory
     )
     print(len(index_names), 'indexes')
     grid = {
         'encode__index_name': index_names,
-        # TODO: search over hyperparameters
-        'regress': [
-            PLSRegression()
-        ]
+        # TODO: search over models and model hyperparameters
     }
-    kfold = KFold(n_splits=NUM_FOLDS, random_state=0)
+    if NUM_FOLDS:
+        cv = KFold(n_splits=NUM_FOLDS, random_state=0)
+    else:
+        cv = LeaveOneOut()
     search = GridSearchCV(
         pipeline,
         grid,
         error_score=np.nan,
-        verbose=5,
         n_jobs=-1,
-        cv=kfold
+        cv=cv,
+        verbose=CV_VERBOSE
     )
 
     print('*' * 40)

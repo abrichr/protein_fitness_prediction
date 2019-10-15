@@ -1,1 +1,6 @@
 https://raw.githubusercontent.com/gadsbyfly/PyBioMed/master/PyBioMed/download/PyBioMed-1.0.zip
+joblib
+numpy
+pandas
+scikit-learn
+tqdm
