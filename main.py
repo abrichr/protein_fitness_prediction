@@ -4,7 +4,7 @@ from itertools import product
 from timeit import default_timer as timer
 
 from joblib import Memory
-from sklearn import ensemble, linear_model, neural_network, svm, tree
+from sklearn import ensemble, linear_model, neural_network, svm, tree, kernel_ridge
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, NMF
 from sklearn.feature_selection import (
@@ -34,19 +34,20 @@ from transformations import (
     OneHotEncoder,
     OneHotPairEncoder,
     #PyBioMedEncoder,
-    AAIndexEncoder
+    AAIndexEncoder,
+    get_index_names
 )
 
 
 EXPECTED_VARIANT_LENGTH = 4
 FPATH_DATASET = 'DataSet for Assignment.xlsx - Sheet1 (1).csv'
 CACHEDIR = '__cache__'
+NUM_FOLDS = 2  # if None, NUM_FOLDS == num_rows ==> leave one out
 N_FEATURES_RATIOS = [
     .01,
     .1,
     1
 ]
-NUM_FOLDS = None  # if None, NUM_FOLDS == num_rows ==> leave one out
 
 
 memory = Memory(location=CACHEDIR)
@@ -55,9 +56,60 @@ memory = Memory(location=CACHEDIR)
 def main():
     """Main"""
 
-    #estimator = get_best_estimator__cached()
-    estimator = get_best_estimator()
+    search, estimator = innovSAR()
     pick_candidates(estimator, 10)
+
+
+def innovSAR():
+    df = load_data()
+    Y = df['Fitness']
+    X = df[['Variants']]
+    index_names = get_index_names()
+    pipeline = Pipeline(
+        [
+            ('encode', AAIndexEncoder()),
+            ('fft', FFTEncoder()),
+            ('regress', PLSRegression())
+        ],
+        memory
+    )
+    print(len(index_names), 'indexes')
+    grid = {
+        'encode__index_name': index_names,
+        # TODO: search over hyperparameters
+        'regress': [
+            PLSRegression()
+        ]
+    }
+    kfold = KFold(n_splits=NUM_FOLDS, random_state=0)
+    search = GridSearchCV(
+        pipeline,
+        grid,
+        error_score=np.nan,
+        verbose=5,
+        n_jobs=-1,
+        cv=kfold
+    )
+
+    print('*' * 40)
+    print('Searching')
+    print('*' * 40)
+    start = timer()
+    search.fit(X, Y)
+    end = timer()
+    print('Finished in: {}'.format(end - start))
+
+    best_estimator = search.best_estimator_
+    best_params = search.best_params_
+    best_score = search.best_score_
+    best_index = search.best_index_
+    best_std = search.cv_results_['std_test_score'][best_index]
+    print('best_estimator:', best_estimator)
+    print('best_params:', best_params)
+    print('best_score:', best_score)
+    print('best_std:', best_std)
+
+    return search, best_estimator
 
 
 def pick_candidates(estimator, num_candidates):
@@ -109,55 +161,12 @@ def get_combined_grids(grid_steps):
         combined_grids.append(combined_grid)
     return combined_grids
 
-'''
-Finished in: 920.260710001
-best_estimator: Pipeline(memory=Memory(location=__cache__/joblib),
-     steps=[('reduce', NMF(alpha=0.0, beta_loss='frobenius', init=None, l1_ratio=0.0, max_iter=200,
-  n_components=4, random_state=None, shuffle=False, solver='cd',  
-  tol=0.0001, verbose=0)), ('regress', LinearSVR(C=1.0, dual=True, epsilon=0.0, fit_intercept=True,              
-     intercept_scaling=1.0, loss='epsilon_insensitive', max_iter=1000,
-     random_state=None, tol=0.0001, verbose=0))])
-best_params: {'regress': LinearSVR(C=1.0, dual=True, epsilon=0.0, fit_intercept=True,              
-     intercept_scaling=1.0, loss='epsilon_insensitive', max_iter=1000,
-     random_state=None, tol=0.0001, verbose=0), 'reduce__n_components': 4, 'reduce': NMF(alpha=0.0, beta_loss='frobenius', init=None, l1_ratio=0.0, max_iter=200,
-  n_components=4, random_state=None, shuffle=False, solver='cd',  
-  tol=0.0001, verbose=0)}
-best_score: -7.231589338833839
-best_std: 8.048889351279628
-'''
 
-def innovSAR():
-    df = load_data()
-    Y = df['Fitness']
-    X = df[['Variants']]
-    encoder = AAIndexEncoder()
-    start = timer()
-    X = encoder.transform(X)
-    end = timer()
-    print('Finished in: {}'.format(end - start))
-    num_rows, num_cols = X.shape
-    assert num_rows == len(df)
-    print('Got {} features'.format(num_cols))
-    import ipdb; ipdb.set_trace()
-
-def hyperopt():
+def get_best_estimator():
+    """Hyperparameter optimization"""
 
     df = load_data()
     Y = df['Fitness']
-    Y_trans = Y
-    if 0:
-        for _ in range(100):
-            Y_trans = np.log1p(Y_trans)
-        if 1:
-            f, (ax0, ax1) = plt.subplots(1, 2)
-            ax0.hist(Y, bins=100)
-            ax1.hist(Y_trans, bins=100)
-            f, (ax0, ax1) = plt.subplots(1, 2)
-            ax0.plot(Y)
-            ax1.plot(Y_trans)
-            plt.show()
-            import ipdb; ipdb.set_trace()
-
     X = df[['Variants']]
     features = FeatureUnion([
         #('one_hot_encoder', OneHotEncoder()),
@@ -209,7 +218,7 @@ def hyperopt():
 
 
     # Random forest features
-    # Number of trees in random forest
+    # Number of trees
     n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
     # Number of features to consider at every split
     max_features = ['auto', 'sqrt']

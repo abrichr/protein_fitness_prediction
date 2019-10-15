@@ -1,14 +1,17 @@
 from __future__ import print_function
 
-from sklearn.base import BaseEstimator, TransformerMixin
+import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
 from itertools import product
 from PyBioMed import Pyprotein
 from PyBioMed.PyProtein import AAIndex
 from joblib import Memory
 from tqdm import tqdm
+from numpy.fft import fft
 
 memory = Memory(location='__feature_cache__')
+memory = Memory(None)
 
 DEBUG = False
 ALPHABET = [
@@ -96,62 +99,61 @@ def encode_protein_pybiomed(variant):
     return pd.Series(features)
 
 
-def get_aaindex():
+def get_index_names():
     AAIndex.init()
     aaindex = AAIndex._aaindex
     aaindex1_keys = [
         key for key, val in aaindex.items()
         if not isinstance(val, AAIndex.MatrixRecord)
     ]
-    aaindex1_features = []
-    for key in tqdm(aaindex1_keys):
-        aaindex1 = AAIndex.GetAAIndex1(key)
-        aaindex1_features.append(aaindex1)
+    return aaindex1_keys
 
-    # TODO: use aaindex 2 and 3
-    '''
-    aaindex2:
-    https://proteinstructures.com/Sequence/Sequence/amino-acid-substitution.html
-    In the resulting mutation data (or probability) matrix Mij each element
-    provides an estimate of the probability of an amino acid in column i to be
-    mutated to the amino acid in row j after certain evolutionary time.
+def get_index_values(index_name):
+    """Return a dict of {Letter: Float}"""
+    return AAIndex.GetAAIndex1(index_name)
 
-    aaindex3:
-    https://en.wikipedia.org/wiki/Statistical_potential
-    For pairwise amino acid contacts, a statistical potential is formulated as
-    an interaction matrix that assigns a weight or energy value to each
-    possible pair of standard amino acids. The energy of a particular
-    structural model is then the combined energy of all pairwise contacts
-    (defined as two amino acids within a certain distance of each other) in
-    the structure.
-    '''
+# TODO: use aaindex 2 and 3?
+'''
+aaindex2:
+https://proteinstructures.com/Sequence/Sequence/amino-acid-substitution.html
+In the resulting mutation data (or probability) matrix Mij each element
+provides an estimate of the probability of an amino acid in column i to be
+mutated to the amino acid in row j after certain evolutionary time.
 
-    return pd.DataFrame(aaindex1_features)
+aaindex3:
+https://en.wikipedia.org/wiki/Statistical_potential
+For pairwise amino acid contacts, a statistical potential is formulated as
+an interaction matrix that assigns a weight or energy value to each
+possible pair of standard amino acids. The energy of a particular
+structural model is then the combined energy of all pairwise contacts
+(defined as two amino acids within a certain distance of each other) in
+the structure.
+'''
 
-get_aaindex__cached = memory.cache(get_aaindex)
-
-
-def encode_protein_aaindex(variant):
-    print('Encoding aaindex:', variant)
-    aaindex = get_aaindex__cached()
-    cols = []
-    for letter in variant:
-        col = aaindex[letter]
-        cols.append(col)
-    debug('encode_protein_aaindex() cols:', cols)
-    return pd.Series(pd.DataFrame(cols).values.flatten())
-
-def encode_proteins_aaindex(variants):
-    rval = variants.apply(encode_protein_aaindex)
+def encode_protein_aaindex(variant, index_name):
+    debug('Encoding aaindex:', variant)
+    index_values = get_index_values(index_name)
+    encoded = [index_values[letter] for letter in variant]
+    rval = pd.Series(encoded)
     return rval
+
+def encode_proteins_aaindex(variants, index_name):
+    from functools import partial
+    _encode_protein_aaindex = partial(
+        encode_protein_aaindex,
+        index_name=index_name
+    )
+    rval = variants.apply(_encode_protein_aaindex)
+    return rval
+
+encode_proteins_aaindex__cached = memory.cache(encode_proteins_aaindex)
+
 
 def encode_proteins_pybiomed(variants):
     rval = variants.apply(encode_protein_pybiomed)
     return rval
 
-
 encode_proteins_pybiomed__cached = memory.cache(encode_proteins_pybiomed)
-encode_proteins_aaindex__cached = memory.cache(encode_proteins_aaindex)
 
 
 class PyBioMedEncoder(BaseEstimator, BaseTransformer):
@@ -160,12 +162,16 @@ class PyBioMedEncoder(BaseEstimator, BaseTransformer):
         return encode_proteins_pybiomed__cached(variants)
 
 class AAIndexEncoder(BaseEstimator, BaseTransformer):
+
+    def __init__(self, index_name=None):
+        self.index_name = index_name
+
     def transform(self, X, y=None):
         variants = X['Variants']
-        return encode_proteins_aaindex__cached(variants)
+        rval = encode_proteins_aaindex__cached(variants, self.index_name)
+        print('AAIndexEncoder rval.shape:', rval.shape)
+        return rval
 
-import numpy as np
-from numpy.fft import fft
 
 class FFTEncoder(BaseEstimator, BaseTransformer):
     """
@@ -175,6 +181,7 @@ class FFTEncoder(BaseEstimator, BaseTransformer):
     """
     def transform(self, X, y=None):
         spect = fft(X)
-        return spect.real
         rows, cols = spect.shape
-        return np.stack((spect.real, spect.imag), -1).reshape((rows, -1))
+        rval = np.stack((spect.real, spect.imag), -1).reshape((rows, -1))
+        print('FFTEncoder rval.shape:', rval.shape)
+        return rval
