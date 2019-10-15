@@ -24,7 +24,7 @@ This takes approximately 26h on a MacBook Pro with a 3.1 GHz i7 CPU and
 # Methods 
 
 This implementation resembles that of
-[innov’SAR](https://www.genome.jp/aaindex/).
+[innov’SAR](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6233173).
 
 Steps:
 
@@ -57,11 +57,9 @@ Via `numpy.fft`.
 
 This implementation differs in the following ways:
 
-- Encode the given sequences of length 4 (instead of 9)
+- Encode the given sequences (having length 4 instead of 9)
 - Predict the given fitness values (instead of enantioselectivity of epoxide
 hydrolase)
-- Use K-Fold cross validation Instead of Leave-One-Out in order to reduce
-training time (at the expense of a more biased model).
 
 ## 3) Validation
 
@@ -82,17 +80,14 @@ can be synthesized for the next round.
 improve the model are likely those that lie far away from the provided ones
 in the mutation graph. These can be determined by constructing an exhaustive
 mutation graph of the whole space and sampling from regions that are far away
-from each other and from the provided dataset.
+both from each other and from the provided dataset.
 
 # Future Work
-
-- Leave one out cross validation would produce less biased estimators than
-K-fold.
 
 - Training on more than 0.3% of the data would likely improve performance.
 
 - Training more models (e.g. SVM, Random Forest) with various hyperparameter
-settings might yield better accuracy.
+settings might yield a model with better accuracy.
 
 - Creating a mutation graph of the given variants and training separate
 classifiers on connected components might have the effect of reducing the
